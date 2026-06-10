@@ -8,4 +8,4 @@ class Document:
     source_path: str
     title: str
     text: str
-    metadata: dict[str,Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
