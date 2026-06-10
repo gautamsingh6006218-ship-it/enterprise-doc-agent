@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 data/
 vectorstore/
+docs/*.pdf
+docs/*
+!docs/.gitkeep
