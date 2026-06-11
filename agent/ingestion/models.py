@@ -18,3 +18,5 @@ class DocumentChunk:
     text: str
     chunk_index: int
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
