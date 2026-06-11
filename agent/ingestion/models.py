@@ -9,3 +9,12 @@ class Document:
     title: str
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DocumentChunk:
+    id: str
+    document_id: str
+    text: str
+    chunk_index: int
+    metadata: dict[str, Any] = field(default_factory=dict)
