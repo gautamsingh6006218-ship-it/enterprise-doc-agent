@@ -81,6 +81,7 @@ class DocumentPipeline:
         owner_id: str = "system",
         access_roles: list[str] | None = None,
         visibility: str = "public",
+        original_filename: str = "",
     ) -> PipelineResult:
         """
         What problem does this solve?
@@ -116,6 +117,7 @@ class DocumentPipeline:
             owner_id=owner_id,
             access_roles=access_roles,
             visibility=visibility,
+            original_filename=original_filename,
         )
         stages.append(StageResult(
             stage="ingestion",

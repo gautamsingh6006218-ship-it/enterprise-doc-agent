@@ -99,6 +99,7 @@ class IngestionService:
         owner_id: str = "system",
         access_roles: list[str] | None = None,
         visibility: str = "public",
+        original_filename: str = "",
     ) -> IngestionResult:
         """
         What problem does this solve?
@@ -138,6 +139,8 @@ class IngestionService:
             document.owner_id = owner_id
             document.access_roles = access_roles or []
             document.visibility = visibility
+            if original_filename:
+                document.title = original_filename
 
             # Near-duplicate detection: check before chunking/embedding to
             # avoid storing near-identical content in the vector store.

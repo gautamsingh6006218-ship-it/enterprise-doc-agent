@@ -103,6 +103,7 @@ class PipelineService:
             owner_id=owner_id,
             access_roles=access_roles,
             visibility=visibility,
+            original_filename=original_filename,
         )
 
         if self._registry is not None:

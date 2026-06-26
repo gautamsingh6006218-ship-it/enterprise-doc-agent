@@ -1,14 +1,39 @@
+import os
+
 from agent.llm.base import BaseLLMProvider, LLMResult
 from agent.retrieval.models import SearchResult
 
-_SYSTEM_PROMPT = """You are an enterprise document assistant. Answer questions based ONLY on the provided document excerpts.
+_SYSTEM_PROMPT = """You are an enterprise document assistant. Your job is to extract and present information from the provided document excerpts.
 
-Rules:
-- Answer directly and concisely using only the information in the provided context
-- If the answer is not clearly present in the context, say "I don't have enough information in the provided documents to answer this."
-- Never make up, infer, or hallucinate facts beyond what is explicitly stated
-- Cite which source excerpt your answer comes from (e.g. "According to Source 1...")
-- If quoting directly, use quotation marks"""
+Instructions:
+- Read ALL provided source excerpts carefully
+- Extract and present ALL relevant information that answers the question
+- If a source contains a list (skills, bullet points, items), reproduce that list completely
+- Be direct — answer the question immediately without preamble
+- Cite sources inline (e.g. "According to Source 1...")
+- Only say you cannot answer if the topic is genuinely absent from ALL sources
+- Never ignore data that is clearly present in the excerpts"""
+
+
+def _source_name(chunk: SearchResult) -> str:
+    meta = chunk.metadata
+
+    # title is overridden with original_filename at ingest time
+    title = meta.get("title", "")
+    if title and not title.startswith(("ingest_", "watch_")):
+        return title
+
+    # title is a temp name — try source_path basename
+    source_path = meta.get("source_path", "")
+    if source_path:
+        name = os.path.basename(source_path)
+        if not name.startswith(("ingest_", "watch_")):
+            return name
+
+    # Last resort: category + document_id prefix
+    category = meta.get("category", "")
+    doc_id = chunk.document_id[:8]
+    return f"{category} ({doc_id})" if category else doc_id
 
 
 class LLMService:
@@ -24,11 +49,7 @@ class LLMService:
 
         context_parts = []
         for i, chunk in enumerate(chunks, 1):
-            source = (
-                chunk.metadata.get("file_name")
-                or chunk.metadata.get("source")
-                or chunk.document_id
-            )
+            source = _source_name(chunk)
             context_parts.append(f"[Source {i}: {source}]\n{chunk.text}")
 
         context = "\n\n---\n\n".join(context_parts)
