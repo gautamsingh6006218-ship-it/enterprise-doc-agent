@@ -1,19 +1,19 @@
 """
 ingestion/loaders/pdf.py
-------------------------
-PDF document loader using PyMuPDF (fitz).
 
-Why PyMuPDF over pypdf or pdfplumber?
-- PyMuPDF is significantly faster on large files (C-level rendering engine).
-- Better text extraction from complex layouts (columns, tables, rotated text).
-- pypdf is also installed (listed in requirements.txt) but used as fallback
-  only — PyMuPDF is the primary extractor here.
+What problem does this solve?
+- PDF is the most common enterprise document format. Raw PDF bytes are binary
+  and unreadable — this loader extracts clean plain text from them.
 
-Current limitations (known, intentional for this phase):
-- Image-only / scanned PDFs will produce empty text. OCR support (via
-  Tesseract or AWS Textract) will be added as a separate loader in Phase 2.
-- No per-page metadata (bounding boxes, fonts) — plain text only. Structured
-  extraction will be a separate pipeline stage.
+Why PyMuPDF (fitz) instead of pypdf or pdfplumber?
+- PyMuPDF runs at C level — 3-5x faster on large files than pure-Python libs.
+- Handles complex layouts (multi-column, rotated text, mixed fonts) better.
+- pypdf is installed as a fallback but not used as the primary extractor.
+
+Known limitations (intentional for this phase):
+- Scanned / image-only PDFs produce empty text — OCR (Tesseract or AWS
+  Textract) will be added as a separate loader in Phase 2.
+- No per-page bounding boxes or font metadata — plain text extraction only.
 """
 
 import hashlib
@@ -28,32 +28,49 @@ from agent.ingestion.models import Document
 
 class PdfLoader(BaseDocumentLoader):
     """
-    Loads PDF files and extracts their text content page by page.
+    What problem does this solve?
+    - Converts a .pdf file into a plain-text Document with page-level metadata.
 
-    Text from all pages is joined with double newlines to preserve paragraph
-    boundaries. Empty pages (e.g. cover images, blank separators) are skipped
-    to avoid injecting whitespace-only chunks downstream.
+    Why does this class exist?
+    - Encapsulates all PyMuPDF-specific logic in one place. If the library
+      changes or we switch to a cloud OCR service, only this file changes.
     """
 
     @property
     def supported_extensions(self) -> list[str]:
-        """Handles only .pdf files."""
+        """Handles .pdf only. Image-based PDFs require the OCR loader (Phase 2)."""
         return [".pdf"]
 
     def load(self, file_path: str, tenant_id: str = "default") -> Document:
         """
-        Extract text from a PDF file and return a Document.
+        What problem does this solve?
+        - Turns binary PDF bytes into indexed, searchable plain text.
 
-        Args:
-            file_path:  Path to the .pdf file.
-            tenant_id:  Tenant identifier for multi-tenant isolation.
+        Why are these inputs required?
+        - file_path:  Location of the PDF on disk. Required — no file, no text.
+        - tenant_id:  Stored on the returned Document for vector store
+                      tenant-scoped filtering at query time.
 
-        Returns:
-            Document with full extracted text and page-level metadata.
+        Why read raw bytes before opening with fitz?
+        - We need the bytes for MD5 hashing (deduplication). Reading once
+          avoids two separate disk reads for the same file.
+
+        Why skip blank pages?
+        - Image-only or separator pages produce empty strings. Including them
+          creates empty chunks downstream, wasting vector store capacity and
+          polluting search results.
+
+        Why join pages with double newline?
+        - RecursiveCharacterTextSplitter treats \n\n as a paragraph boundary —
+          a natural split point. Single \n would merge page content into one block.
+
+        Why Document instead of str?
+        - Downstream services (chunker, embedder) need source path, tenant,
+          hash, and page count alongside the text. A bare string loses all of that.
 
         Raises:
-            FileNotFoundError: If the file does not exist on disk.
-            ValueError:        If the file is not a .pdf.
+        - FileNotFoundError  if the PDF does not exist on disk.
+        - ValueError         if the file is not a .pdf.
         """
         path = Path(file_path)
 
@@ -62,8 +79,7 @@ class PdfLoader(BaseDocumentLoader):
         if path.suffix.lower() not in self.supported_extensions:
             raise ValueError(f"PdfLoader cannot handle: {path.suffix}")
 
-        # Read raw bytes once — used for both MD5 hashing and fitz.open()
-        # to avoid reading the file twice from disk.
+        # Read bytes once — reused for MD5 hash and fitz.open()
         raw_bytes = path.read_bytes()
         file_hash = hashlib.md5(raw_bytes).hexdigest()
 
@@ -72,28 +88,25 @@ class PdfLoader(BaseDocumentLoader):
 
         for page in pdf:
             text = page.get_text()
-            # Skip blank/image-only pages — they produce no usable text and
-            # would create empty chunks if passed to the chunker.
+            # Skip blank or image-only pages — they produce no usable text
+            # and would create empty chunks if passed to the chunker.
             if text.strip():
                 pages_text.append(text)
 
         pdf.close()
 
-        # Double newline separator preserves page boundaries as paragraph
-        # breaks, which RecursiveCharacterTextSplitter recognises as
-        # natural split points.
         full_text = "\n\n".join(pages_text).strip()
 
         return Document(
             id=str(uuid4()),
             source_type="pdf",
-            source_path=str(path.resolve()),  # always store absolute path
+            source_path=str(path.resolve()),    # always store absolute path for audit trail
             title=path.stem,
             text=full_text,
             tenant_id=tenant_id,
             file_hash=file_hash,
             metadata={
-                "page_count": len(pages_text),     # non-blank pages only
+                "page_count": len(pages_text),  # non-blank pages only
                 "file_name": path.name,
                 "file_size_bytes": len(raw_bytes),
             },

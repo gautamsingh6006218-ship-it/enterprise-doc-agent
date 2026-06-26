@@ -1,25 +1,24 @@
 """
 ingestion/loaders/html.py
--------------------------
-HTML document loader using lxml.
 
-Why lxml over BeautifulSoup?
-- lxml is already in requirements.txt (pulled in by other dependencies).
-- lxml is ~3-5x faster than BeautifulSoup on large HTML files.
-- The HTMLParser handles malformed/real-world HTML the same way browsers do.
+What problem does this solve?
+- HTML files contain tags, scripts, styles, and metadata that are meaningless
+  for RAG. Passing raw HTML to an embedding model degrades retrieval quality.
+
+Why lxml instead of BeautifulSoup?
+- lxml is already in requirements.txt (pulled in by other deps) — no extra install.
+- lxml is 3-5x faster on large HTML files (C-level XML/HTML parser).
+- HTMLParser handles real-world malformed HTML the same way browsers do.
 
 Text extraction strategy:
-1. Parse the raw HTML bytes with lxml's tolerant HTMLParser.
-2. Strip <script> and <style> nodes in-place — they contain code/CSS, not
-   document content, and would pollute embeddings.
-3. Use itertext() to walk the remaining DOM and collect all text nodes.
-4. Normalise whitespace by splitting on any whitespace and re-joining with
-   single spaces — eliminates tabs, multiple spaces, and newlines from HTML
-   indentation.
+1. Parse bytes with lxml HTMLParser (tolerant of malformed HTML).
+2. Strip <script> and <style> nodes — code and CSS have no semantic value.
+3. Walk remaining DOM with itertext() to collect all visible text nodes.
+4. Collapse whitespace (HTML indentation tabs/spaces) into single spaces.
 
 Title extraction:
-- Reads the <title> tag if present; falls back to the filename stem.
-  This gives a human-readable document title for display and metadata.
+- Reads <title> tag first (usually more descriptive than a filename).
+- Falls back to filename stem if no <title> is present.
 """
 
 import hashlib
@@ -34,32 +33,59 @@ from agent.ingestion.models import Document
 
 class HtmlLoader(BaseDocumentLoader):
     """
-    Loads HTML files and extracts clean text content.
+    What problem does this solve?
+    - Strips all HTML structure and noise, returning only human-readable text
+      suitable for chunking and semantic embedding.
 
-    Strips scripts, styles, and HTML structure — returns plain readable text
-    suitable for chunking and embedding.
+    Why does this class exist?
+    - Isolates lxml dependency and HTML-specific cleaning in one place.
+      Changing the extraction strategy (e.g. preserving heading hierarchy)
+      only touches this file.
     """
 
     @property
     def supported_extensions(self) -> list[str]:
-        """Handles .html and .htm files."""
+        """Handles .html and .htm. Both are identical in structure."""
         return [".html", ".htm"]
 
     def load(self, file_path: str, tenant_id: str = "default") -> Document:
         """
-        Parse an HTML file, strip noise nodes, and return a Document.
+        What problem does this solve?
+        - Converts an HTML page into clean, indexed plain text by stripping
+          all tags and noise elements.
 
-        Args:
-            file_path:  Path to the .html / .htm file.
-            tenant_id:  Tenant identifier for multi-tenant isolation.
+        Why are these inputs required?
+        - file_path:  The HTML file to parse.
+        - tenant_id:  Propagated to Document for tenant-scoped vector queries.
 
-        Returns:
-            Document with clean text (no tags, scripts, or styles).
-            Title is populated from the <title> tag if present.
+        Why use HTMLParser instead of the strict XML parser?
+        - Real-world HTML is almost never valid XML (missing closing tags,
+          unquoted attributes, etc.). HTMLParser is lenient and won't crash
+          on production documents. The strict parser would raise on any malformed file.
+
+        Why remove <script> and <style> before itertext()?
+        - itertext() walks ALL text nodes, including JavaScript code inside
+          <script> and CSS inside <style>. These contain zero semantic value
+          for RAG and would badly pollute embeddings if included.
+
+        Why split + rejoin whitespace instead of strip()?
+        - HTML indentation adds tabs and multiple spaces between text nodes.
+          split() on any whitespace + rejoin with single space collapses all
+          of that into clean readable prose. strip() alone wouldn't fix mid-text
+          whitespace.
+
+        Why prefer <title> over filename for the title field?
+        - HTML page titles are set by authors to be descriptive
+          (e.g. "Q3 2024 Sales Report"). Filenames are often slugs or IDs
+          (e.g. "q3_sr_v2_final"). Title tag gives better metadata for search UI.
+
+        Why Document instead of str?
+        - Same as all loaders: file_hash, tenant_id, source_path, and created_at
+          are all required by downstream services.
 
         Raises:
-            FileNotFoundError: If the file does not exist on disk.
-            ValueError:        If the extension is not supported.
+        - FileNotFoundError  if the file does not exist.
+        - ValueError         if the extension is not .html or .htm.
         """
         path = Path(file_path)
 
@@ -71,26 +97,24 @@ class HtmlLoader(BaseDocumentLoader):
         raw_bytes = path.read_bytes()
         file_hash = hashlib.md5(raw_bytes).hexdigest()
 
-        # HTMLParser is lenient — handles real-world malformed HTML without
-        # raising exceptions (unlike the strict XML parser).
+        # HTMLParser is lenient — handles malformed real-world HTML without
+        # raising exceptions unlike the strict XML parser.
         parser = etree.HTMLParser()
         tree = etree.fromstring(raw_bytes, parser)
 
-        # Remove <script> and <style> subtrees before text extraction.
-        # These contain code/CSS that has zero semantic value for RAG and
-        # would significantly degrade embedding quality if included.
+        # Remove <script> and <style> subtrees before any text extraction.
+        # JavaScript and CSS have no semantic value for RAG — including them
+        # would heavily pollute embedding vectors.
         for tag in tree.iter("script", "style"):
             tag.getparent().remove(tag)
 
         # itertext() walks all remaining text nodes depth-first.
-        # Splitting and re-joining collapses all whitespace variants
-        # (tabs, multiple spaces, newlines from HTML indentation) into
-        # single spaces, producing clean readable text.
+        # split() + rejoin collapses all whitespace variants (tabs, multiple
+        # spaces, newlines from HTML indentation) into single spaces.
         tokens = " ".join(tree.itertext()).split()
         full_text = " ".join(tokens).strip()
 
-        # Prefer <title> tag over filename — HTML titles are usually more
-        # descriptive (e.g. "Q3 2024 Sales Report" vs "q3_sales_report").
+        # Prefer <title> tag — it is typically more descriptive than the filename.
         title_nodes = tree.findall(".//title")
         title = (
             title_nodes[0].text.strip()

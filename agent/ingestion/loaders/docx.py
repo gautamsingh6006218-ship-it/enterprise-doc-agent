@@ -1,22 +1,24 @@
 """
 ingestion/loaders/docx.py
--------------------------
-Microsoft Word (.docx) document loader using python-docx.
 
-What is extracted:
-- Body paragraphs (headings, body text, list items) — all paragraph styles.
+What problem does this solve?
+- Word documents (.docx) are one of the most common enterprise formats.
+  Raw .docx files are ZIP archives containing XML — unreadable without a parser.
+
+Why python-docx?
+- Most mature open-source library for .docx parsing. Handles all paragraph
+  styles (headings, body text, lists) uniformly.
 
 What is NOT extracted (intentional for this phase):
-- Tables: extracted as raw text in Phase 2 (needs row/column aware chunking).
-- Headers / Footers: typically contain page numbers and company names that
-  add noise to embeddings without semantic value.
-- Embedded images: OCR pipeline — Phase 2.
-- Comments / tracked changes: not surfaced by python-docx by default.
+- Tables           → need row/column-aware chunking — Phase 2.
+- Headers/footers  → usually page numbers and company names, not content.
+                     Including them adds noise to embeddings.
+- Embedded images  → OCR pipeline — Phase 2.
+- Tracked changes  → python-docx surfaces accepted text only, not diffs.
 
-Note on .doc (old binary format):
-- .doc is the legacy Word 97-2003 format and requires `antiword` or
-  `LibreOffice` CLI to convert. It is not supported here — the LoaderRegistry
-  will return a clear "no loader registered" error if a .doc file is passed.
+Note on .doc (legacy Word 97-2003 binary format):
+- .doc requires antiword or LibreOffice CLI to convert.
+- Not supported — LoaderRegistry returns a clear error for .doc files.
 """
 
 import hashlib
@@ -31,31 +33,48 @@ from agent.ingestion.models import Document
 
 class DocxLoader(BaseDocumentLoader):
     """
-    Loads .docx files and extracts paragraph text content.
+    What problem does this solve?
+    - Converts a .docx file into plain text by extracting all body paragraphs.
 
-    Empty paragraphs (used in Word as visual spacing) are filtered out to
-    avoid injecting blank lines into the text corpus.
+    Why does this class exist?
+    - Isolates python-docx dependency in one place. Swapping the library or
+      adding table extraction only touches this file.
     """
 
     @property
     def supported_extensions(self) -> list[str]:
-        """Handles .docx only. Legacy .doc is not supported."""
+        """Handles .docx only. Legacy .doc binary format is not supported."""
         return [".docx"]
 
     def load(self, file_path: str, tenant_id: str = "default") -> Document:
         """
-        Extract text from a Word document and return a Document.
+        What problem does this solve?
+        - Turns a Word document into indexed, searchable plain text.
 
-        Args:
-            file_path:  Path to the .docx file.
-            tenant_id:  Tenant identifier for multi-tenant isolation.
+        Why are these inputs required?
+        - file_path:  Location of the .docx file on disk.
+        - tenant_id:  Propagated to Document for tenant-scoped vector queries.
 
-        Returns:
-            Document with paragraph text joined by double newlines.
+        Why filter empty paragraphs?
+        - Word uses blank paragraphs for visual spacing (line breaks between
+          sections). Including them injects whitespace-only strings into chunks,
+          wasting embedding capacity and degrading retrieval quality.
+
+        Why join paragraphs with double newline?
+        - Preserves paragraph boundaries as natural split points for the chunker.
+          Single \n would merge separate paragraphs into one long block.
+
+        Why paragraph_count in metadata?
+        - Gives the chunker a rough sense of document size before splitting.
+          Also useful for debugging when a document produces fewer chunks than expected.
+
+        Why Document instead of str?
+        - Same as all loaders: downstream services need source path, tenant,
+          hash, and metadata alongside the text.
 
         Raises:
-            FileNotFoundError: If the file does not exist on disk.
-            ValueError:        If the file is not a .docx.
+        - FileNotFoundError  if the file does not exist.
+        - ValueError         if the file is not a .docx.
         """
         path = Path(file_path)
 
@@ -69,8 +88,8 @@ class DocxLoader(BaseDocumentLoader):
 
         doc = DocxDocument(str(path))
 
-        # Filter empty paragraphs — Word uses blank paragraphs for spacing,
-        # not content. Including them would pollute chunks with whitespace.
+        # Blank paragraphs are spacing artefacts in Word, not content.
+        # Filtering them keeps the text corpus clean for embedding.
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
         full_text = "\n\n".join(paragraphs).strip()
 

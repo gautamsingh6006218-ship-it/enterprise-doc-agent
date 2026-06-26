@@ -1,21 +1,25 @@
 """
 ingestion/loaders/txt.py
-------------------------
-Plain text and Markdown document loader.
 
-Both formats are treated as raw UTF-8 text — no Markdown parsing or
-rendering is performed. This is intentional:
-- The chunker operates on plain text and uses newline patterns as split hints.
-- Markdown syntax characters (##, **, >, etc.) are low-frequency noise that
-  the embedding model handles gracefully without stripping.
-- If structured Markdown parsing (headers as section boundaries) is needed,
-  that will be a separate MarkdownAwareChunker, not a different loader.
+What problem does this solve?
+- Plain text and Markdown files need no binary parsing, but the pipeline
+  still needs a Document with tenant, hash, and metadata — not just raw text.
+
+Why handle .txt and .md in the same loader?
+- Both formats are UTF-8 text files with no binary structure to parse.
+- Only the source_type field differs ("txt" vs "markdown") so downstream
+  services can apply format-aware processing (e.g. header-based chunking).
+- A separate MarkdownLoader would be pure duplication with one field changed.
+
+Why not parse Markdown syntax (strip ##, **, etc.)?
+- Embedding models handle Markdown characters gracefully — they are low-
+  frequency tokens that don't degrade embedding quality.
+- Stripping syntax would lose heading structure that the chunker can use
+  as natural split boundaries (header-aware chunking — Phase 2).
 
 Encoding strategy:
-- Attempts UTF-8 decode first.
-- Falls back to `errors="replace"` for files with non-UTF-8 bytes (e.g.
-  Latin-1 encoded legacy docs) — produces a readable document with
-  replacement characters rather than crashing the pipeline.
+- UTF-8 with errors="replace": handles legacy files with mixed encodings.
+- Produces readable text with replacement chars rather than crashing the pipeline.
 """
 
 import hashlib
@@ -28,32 +32,49 @@ from agent.ingestion.models import Document
 
 class TxtLoader(BaseDocumentLoader):
     """
-    Loads plain text (.txt) and Markdown (.md, .markdown) files.
+    What problem does this solve?
+    - Reads plain text and Markdown files into a Document without any binary
+      parsing overhead.
 
-    The `source_type` field distinguishes between 'txt' and 'markdown'
-    so downstream services can apply format-aware processing if needed.
+    Why does this class exist?
+    - Centralises encoding handling and source_type detection for text-based
+      formats. All other text formats (CSV, log files) can be added here.
     """
 
     @property
     def supported_extensions(self) -> list[str]:
-        """Handles .txt, .md, and .markdown files."""
+        """Handles .txt, .md, and .markdown. All treated as raw UTF-8 text."""
         return [".txt", ".md", ".markdown"]
 
     def load(self, file_path: str, tenant_id: str = "default") -> Document:
         """
-        Read a text or Markdown file and return a Document.
+        What problem does this solve?
+        - Wraps a plain text file in a Document with all required pipeline fields.
 
-        Args:
-            file_path:  Path to the .txt / .md / .markdown file.
-            tenant_id:  Tenant identifier for multi-tenant isolation.
+        Why are these inputs required?
+        - file_path:  The text file to read.
+        - tenant_id:  Stored on Document for tenant-scoped vector filtering.
 
-        Returns:
-            Document with raw file content as text. source_type is set to
-            'markdown' for .md/.markdown files, 'txt' otherwise.
+        Why read as bytes first instead of open(..., 'r')?
+        - Bytes are needed for MD5 hashing. Reading as bytes once avoids two
+          disk reads. Decoding is done in-memory after hashing.
+
+        Why errors="replace" in decode?
+        - Legacy enterprise files often have non-UTF-8 bytes (Latin-1, Windows
+          CP1252). Raising an exception would silently drop the document from
+          the index. Replacement characters are preferable to a lost document.
+
+        Why set source_type to "markdown" for .md files?
+        - Lets the ChunkingService apply header-aware splitting (\n## ) for
+          Markdown in Phase 2, while plain text uses paragraph-based splitting.
+
+        Why Document instead of str?
+        - Downstream services need file_hash for deduplication, tenant_id for
+          isolation, and source_path for audit — a bare string carries none of that.
 
         Raises:
-            FileNotFoundError: If the file does not exist on disk.
-            ValueError:        If the extension is not supported.
+        - FileNotFoundError  if the file does not exist.
+        - ValueError         if the extension is not in supported_extensions.
         """
         path = Path(file_path)
 
@@ -62,15 +83,16 @@ class TxtLoader(BaseDocumentLoader):
         if path.suffix.lower() not in self.supported_extensions:
             raise ValueError(f"TxtLoader cannot handle: {path.suffix}")
 
+        # Read bytes first — needed for MD5 before decoding to str.
         raw_bytes = path.read_bytes()
         file_hash = hashlib.md5(raw_bytes).hexdigest()
 
-        # `errors="replace"` ensures legacy files with mixed encodings don't
-        # crash the pipeline — replacement char is preferable to a hard failure.
+        # errors="replace" keeps the pipeline alive for files with
+        # non-UTF-8 bytes (legacy encodings, copy-paste artefacts).
         full_text = raw_bytes.decode("utf-8", errors="replace").strip()
 
-        # Distinguish markdown from plain text so chunking strategies can
-        # use header boundaries (## Section) as natural split points later.
+        # Distinguishing markdown from plain text allows format-aware chunking
+        # to use header lines (## Section) as natural split boundaries.
         source_type = "markdown" if path.suffix.lower() in (".md", ".markdown") else "txt"
 
         return Document(
