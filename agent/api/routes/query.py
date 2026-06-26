@@ -1,33 +1,10 @@
-"""
-api/routes/query.py
-
-What problem does this solve?
-- Exposes RetrievalService over HTTP so the frontend / LLM orchestration layer
-  can search the vector store without Python imports.
-
-POST /query
-- Accepts: JSON body with query string + optional top_k
-- Returns: QueryResponse (matching chunks, window texts, retrieval stats)
-
-Why POST instead of GET for search?
-- Query strings in GET URLs are logged in proxy/load balancer access logs.
-  Enterprise queries may contain sensitive terms. POST body is not logged
-  by default in most infrastructure.
-- Pydantic validation on the request body catches bad inputs before they
-  hit the vector store.
-
-Why pass RBACContext from JWT directly to retrieval?
-- The retrieval pipeline enforces tenant_id + visibility + access_roles
-  in every SQL query. The JWT is the source of truth for who is asking.
-  No additional role lookup needed at query time.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from agent.api.auth import get_rbac_context
-from agent.api.dependencies import get_retrieval_service
+from agent.api.dependencies import get_llm_service, get_retrieval_service
 from agent.api.models import ChunkResult, QueryRequest, QueryResponse
 from agent.retrieval.models import RBACContext
+from agent.services.llm_service import LLMService
 from agent.services.retrieval_service import RetrievalService
 
 router = APIRouter(prefix="/query", tags=["query"])
@@ -38,12 +15,13 @@ def search(
     request: QueryRequest,
     rbac: RBACContext = Depends(get_rbac_context),
     retrieval_svc: RetrievalService = Depends(get_retrieval_service),
+    llm_svc: LLMService = Depends(get_llm_service),
 ) -> QueryResponse:
     """
     Semantic search over ingested documents.
 
-    Returns ranked chunks from BGE-M3 dense + BM25 keyword retrieval,
-    fused via RRF and reranked by bge-reranker-v2-m3.
+    - Retrieval: BGE-M3 dense + BM25 keyword, fused via RRF, reranked by bge-reranker-v2-m3.
+    - Set generate_answer=true to get an LLM-generated answer from retrieved chunks (Llama via Ollama).
     """
     result = retrieval_svc.query(request.query, rbac)
 
@@ -65,9 +43,23 @@ def search(
         for c in context.chunks
     ]
 
+    answer: str | None = None
+    answer_model: str | None = None
+
+    if request.generate_answer:
+        llm_result = llm_svc.answer(request.query, context.chunks)
+        if llm_result.success:
+            answer = llm_result.answer
+            answer_model = llm_result.model
+        else:
+            # LLM failure must not fail the whole query — chunks are still returned
+            answer = f"[LLM error: {llm_result.error}]"
+
     return QueryResponse(
         query=context.query,
         chunks=chunks,
         window_texts=context.window_texts or [],
         retrieval_stats=context.retrieval_stats or {},
+        answer=answer,
+        answer_model=answer_model,
     )

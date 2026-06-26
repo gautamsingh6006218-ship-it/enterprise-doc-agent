@@ -111,8 +111,10 @@ class PgVectorStore:
                     "No database connection. Pass connection= or set PGVECTOR_URL."
                 )
             self._conn = psycopg2.connect(dsn)
-            _register_vector(self._conn)
             self._owns_connection = True
+
+        if _PGVECTOR_AVAILABLE:
+            _register_vector(self._conn)
 
     def upsert_chunks(
         self,
@@ -164,7 +166,7 @@ class PgVectorStore:
                 "document_id":    document_ids[i],
                 "text":           texts[i],
                 "dense_vector":   np.array(dense_vectors[i], dtype=np.float32),
-                "sparse_weights": json.dumps(sparse_weights[i]),
+                "sparse_weights": json.dumps({k: float(v) for k, v in sparse_weights[i].items()}),
                 "metadata":       json.dumps(metadatas[i]),
             }
             for i in range(len(chunk_ids))

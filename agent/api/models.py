@@ -38,6 +38,7 @@ class IngestResponse(BaseModel):
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
+    generate_answer: bool = Field(default=False, description="Generate an LLM answer from retrieved chunks")
 
 
 class ChunkResult(BaseModel):
@@ -53,6 +54,8 @@ class QueryResponse(BaseModel):
     chunks: list[ChunkResult]
     window_texts: list[str] = []
     retrieval_stats: dict[str, Any] = {}
+    answer: str | None = None
+    answer_model: str | None = None
 
 
 # ── Documents ──────────────────────────────────────────────────────────────────

@@ -29,6 +29,7 @@ from agent.pipeline.orchestrator import DocumentPipeline
 from agent.services.chunking_service import ChunkingService
 from agent.services.embedding_service import EmbeddingService
 from agent.services.ingestion_service import IngestionService
+from agent.services.llm_service import LLMService
 from agent.services.pipeline_service import PipelineService
 from agent.services.preprocessing_service import PreprocessingService
 from agent.services.registry_service import RegistryService
@@ -118,6 +119,20 @@ def get_registry_service() -> RegistryService:
     if store is None:
         raise RuntimeError("PGVECTOR_URL not set — registry service unavailable")
     return RegistryService(store=store)
+
+
+@lru_cache(maxsize=1)
+def get_llm_service() -> LLMService:
+    """
+    Returns an LLMService backed by a local Ollama model.
+
+    Environment variables:
+      OLLAMA_LLM_MODEL  — model name (default: llama3.2)
+      OLLAMA_BASE_URL   — Ollama host (default: http://localhost:11434)
+    """
+    from agent.llm.ollama_provider import OllamaProvider
+    provider = OllamaProvider()
+    return LLMService(provider=provider)
 
 
 def _get_registry_store():
