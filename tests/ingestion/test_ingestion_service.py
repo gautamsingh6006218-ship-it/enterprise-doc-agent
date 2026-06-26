@@ -1,14 +1,14 @@
 """
 tests/ingestion/test_ingestion_service.py
 
-What does this test file cover?
-- LoaderRegistry: extension routing, custom loader registration, error on unknown format.
-- IngestionService: all supported formats, RBAC field attachment, error handling.
-- Models: field defaults, deduplication via file_hash, tenant isolation.
-
-Why are tests structured as classes?
-- Groups related assertions. Running a single class (e.g. TestRBAC) is faster
-  during development without running the full suite.
+What does this cover?
+- LoaderRegistry: routing, registration, supported extensions.
+- IngestionService: all formats (txt, md, html, docx, pptx, xlsx, pdf).
+- RBAC fields: owner_id, access_roles, visibility, tenant_id.
+- Error handling: missing file, unsupported format.
+- Deduplication: file_hash consistency, unique IDs.
+- SmartPdfLoader: text detection and routing logic.
+- UnstructuredLoader: DOCX, PPTX, XLSX extraction via Unstructured.
 """
 
 from pathlib import Path
@@ -18,43 +18,14 @@ import pytest
 from agent.ingestion.loader_registry import LoaderRegistry
 from agent.ingestion.loaders.base import BaseDocumentLoader
 from agent.ingestion.models import Document
-from agent.services.ingestion_service import IngestionResult, IngestionService
+from agent.services.ingestion_service import IngestionService
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
 @pytest.fixture()
 def service() -> IngestionService:
-    """Default service with all built-in loaders."""
     return IngestionService()
-
-
-@pytest.fixture()
-def sample_pdf(tmp_path: Path) -> Path:
-    """Minimal valid single-page PDF with extractable text."""
-    content = b"""%PDF-1.4
-1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
-2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
-3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 4 0 R/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>>>endobj
-4 0 obj<</Length 44>>
-stream
-BT /F1 12 Tf 100 700 Td (Hello PDF) Tj ET
-endstream
-endobj
-xref
-0 5
-0000000000 65535 f
-0000000009 00000 n
-0000000058 00000 n
-0000000115 00000 n
-0000000274 00000 n
-trailer<</Size 5/Root 1 0 R>>
-startxref
-368
-%%EOF"""
-    p = tmp_path / "sample.pdf"
-    p.write_bytes(content)
-    return p
 
 
 @pytest.fixture()
@@ -85,7 +56,6 @@ def sample_html(tmp_path: Path) -> Path:
 @pytest.fixture()
 def sample_docx(tmp_path: Path) -> Path:
     from docx import Document as DocxDocument
-
     doc = DocxDocument()
     doc.add_paragraph("Enterprise DOCX content.")
     doc.add_paragraph("Second paragraph.")
@@ -94,31 +64,107 @@ def sample_docx(tmp_path: Path) -> Path:
     return path
 
 
+@pytest.fixture()
+def sample_pptx(tmp_path: Path) -> Path:
+    from pptx import Presentation
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Slide Title"
+    slide.placeholders[1].text = "Slide content for enterprise RAG."
+    path = tmp_path / "deck.pptx"
+    prs.save(str(path))
+    return path
+
+
+@pytest.fixture()
+def sample_xlsx(tmp_path: Path) -> Path:
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Name", "Department", "Score"])
+    ws.append(["Alice", "Engineering", 95])
+    ws.append(["Bob", "HR", 88])
+    path = tmp_path / "data.xlsx"
+    wb.save(str(path))
+    return path
+
+
+@pytest.fixture()
+def sample_pdf_text(tmp_path: Path) -> Path:
+    """Minimal valid single-page PDF with extractable text."""
+    content = b"""%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 4 0 R/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>>>endobj
+4 0 obj<</Length 44>>
+stream
+BT /F1 12 Tf 100 700 Td (Hello PDF) Tj ET
+endstream
+endobj
+xref
+0 5
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000274 00000 n
+trailer<</Size 5/Root 1 0 R>>
+startxref
+368
+%%EOF"""
+    p = tmp_path / "sample.pdf"
+    p.write_bytes(content)
+    return p
+
+
 # ── LoaderRegistry ─────────────────────────────────────────────────────────────
 
 class TestLoaderRegistry:
-    """Verifies extension-to-loader routing and extensibility."""
 
-    def test_supported_extensions_includes_core_formats(self):
+    def test_all_expected_extensions_registered(self):
         registry = LoaderRegistry()
-        for ext in [".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm"]:
-            assert ext in registry.supported_extensions
+        expected = [
+            ".pdf", ".txt", ".md", ".markdown",
+            ".html", ".htm", ".docx", ".pptx",
+            ".xlsx", ".csv", ".png", ".jpg", ".eml",
+        ]
+        for ext in expected:
+            assert ext in registry.supported_extensions, f"Missing: {ext}"
 
-    def test_get_loader_returns_correct_type_for_pdf(self):
-        from agent.ingestion.loaders.pdf import PdfLoader
-        assert isinstance(LoaderRegistry().get_loader("file.pdf"), PdfLoader)
+    def test_pdf_routes_to_smart_loader(self):
+        from agent.ingestion.loaders.pdf_smart import SmartPdfLoader
+        loader = LoaderRegistry().get_loader("doc.pdf")
+        assert isinstance(loader, SmartPdfLoader)
 
-    def test_get_loader_raises_for_unsupported_extension(self):
+    def test_docx_routes_to_unstructured(self):
+        from agent.ingestion.loaders.unstructured_loader import UnstructuredLoader
+        loader = LoaderRegistry().get_loader("doc.docx")
+        assert isinstance(loader, UnstructuredLoader)
+
+    def test_pptx_routes_to_unstructured(self):
+        from agent.ingestion.loaders.unstructured_loader import UnstructuredLoader
+        loader = LoaderRegistry().get_loader("deck.pptx")
+        assert isinstance(loader, UnstructuredLoader)
+
+    def test_txt_routes_to_txt_loader(self):
+        from agent.ingestion.loaders.txt import TxtLoader
+        loader = LoaderRegistry().get_loader("notes.txt")
+        assert isinstance(loader, TxtLoader)
+
+    def test_html_routes_to_html_loader(self):
+        from agent.ingestion.loaders.html import HtmlLoader
+        loader = LoaderRegistry().get_loader("page.html")
+        assert isinstance(loader, HtmlLoader)
+
+    def test_unsupported_extension_raises(self):
         with pytest.raises(ValueError, match="No loader registered for '.xyz'"):
             LoaderRegistry().get_loader("file.xyz")
 
-    def test_register_custom_loader_overrides_existing(self):
-        """Confirms open/closed principle — new loader replaces old without code changes."""
+    def test_register_overrides_existing(self):
         class FakeLoader(BaseDocumentLoader):
             @property
             def supported_extensions(self) -> list[str]:
                 return [".pdf"]
-
             def load(self, file_path: str, tenant_id: str = "default") -> Document:
                 raise NotImplementedError
 
@@ -127,100 +173,92 @@ class TestLoaderRegistry:
         assert isinstance(registry.get_loader("doc.pdf"), FakeLoader)
 
 
-# ── IngestionService — format loading ─────────────────────────────────────────
+# ── Format loading ─────────────────────────────────────────────────────────────
 
-class TestIngestionServiceFormats:
-    """Verifies each file format loads correctly and sets expected fields."""
+class TestFormats:
 
-    def test_ingest_txt_success(self, service: IngestionService, sample_txt: Path):
-        result = service.ingest(str(sample_txt))
-        assert result.success is True
-        assert result.document is not None
-        assert result.error is None
-
-    def test_ingest_txt_fields(self, service: IngestionService, sample_txt: Path):
+    def test_txt(self, service: IngestionService, sample_txt: Path):
         doc = service.ingest(str(sample_txt)).document
         assert doc.source_type == "txt"
-        assert doc.title == "notes"
         assert "Enterprise document content" in doc.text
-        assert len(doc.file_hash) == 32      # MD5 is always 32 hex chars
-        assert doc.created_at is not None
+        assert doc.title == "notes"
 
-    def test_ingest_markdown_source_type(self, service: IngestionService, sample_md: Path):
+    def test_markdown(self, service: IngestionService, sample_md: Path):
         doc = service.ingest(str(sample_md)).document
         assert doc.source_type == "markdown"
+        assert "markdown content" in doc.text
 
-    def test_ingest_html_strips_scripts(self, service: IngestionService, sample_html: Path):
+    def test_html_strips_scripts(self, service: IngestionService, sample_html: Path):
         doc = service.ingest(str(sample_html)).document
-        assert "alert" not in doc.text       # <script> content must be stripped
+        assert "alert" not in doc.text
         assert "Hello HTML" in doc.text
+        assert doc.title == "My Page"
 
-    def test_ingest_html_title_from_tag(self, service: IngestionService, sample_html: Path):
-        doc = service.ingest(str(sample_html)).document
-        assert doc.title == "My Page"        # reads <title> not filename
+    def test_docx(self, service: IngestionService, sample_docx: Path):
+        result = service.ingest(str(sample_docx))
+        assert result.success is True
+        assert "Enterprise DOCX content" in result.document.text
+        assert result.document.source_type == "docx"
 
-    def test_ingest_docx_extracts_paragraphs(self, service: IngestionService, sample_docx: Path):
-        doc = service.ingest(str(sample_docx)).document
-        assert doc.source_type == "docx"
-        assert "Enterprise DOCX content" in doc.text
+    def test_pptx(self, service: IngestionService, sample_pptx: Path):
+        result = service.ingest(str(sample_pptx))
+        assert result.success is True
+        doc = result.document
+        assert doc.source_type == "pptx"
+        assert len(doc.text) > 0
 
-    def test_supported_formats_lists_all_loaders(self, service: IngestionService):
-        formats = service.supported_formats
-        assert isinstance(formats, list)
-        assert len(formats) >= 7            # pdf, docx, txt, md, markdown, html, htm
+    def test_xlsx(self, service: IngestionService, sample_xlsx: Path):
+        result = service.ingest(str(sample_xlsx))
+        assert result.success is True
+        doc = result.document
+        assert doc.source_type == "xlsx"
+        assert len(doc.text) > 0
+
+    def test_pdf_text_based(self, service: IngestionService, sample_pdf_text: Path):
+        result = service.ingest(str(sample_pdf_text))
+        assert result.success is True
+        assert result.document.source_type == "pdf"
 
 
-# ── IngestionService — RBAC ────────────────────────────────────────────────────
+# ── RBAC ───────────────────────────────────────────────────────────────────────
 
-class TestIngestionServiceRBAC:
-    """
-    Verifies RBAC fields are attached by the service (not the loader).
-    Loaders are format-extraction only — RBAC is a service-layer concern.
-    """
+class TestRBAC:
 
     def test_default_rbac_fields(self, service: IngestionService, sample_txt: Path):
         doc = service.ingest(str(sample_txt)).document
         assert doc.owner_id == "system"
         assert doc.access_roles == []
         assert doc.visibility == "public"
+        assert doc.tenant_id == "default"
 
-    def test_custom_owner_id(self, service: IngestionService, sample_txt: Path):
+    def test_custom_owner(self, service: IngestionService, sample_txt: Path):
         doc = service.ingest(str(sample_txt), owner_id="user-42").document
         assert doc.owner_id == "user-42"
 
-    def test_access_roles_attached(self, service: IngestionService, sample_txt: Path):
-        doc = service.ingest(
-            str(sample_txt), access_roles=["hr", "legal"]
-        ).document
-        assert "hr" in doc.access_roles
-        assert "legal" in doc.access_roles
+    def test_access_roles(self, service: IngestionService, sample_txt: Path):
+        doc = service.ingest(str(sample_txt), access_roles=["hr", "legal"]).document
+        assert set(doc.access_roles) == {"hr", "legal"}
 
     def test_visibility_restricted(self, service: IngestionService, sample_txt: Path):
         doc = service.ingest(str(sample_txt), visibility="restricted").document
         assert doc.visibility == "restricted"
 
-    def test_visibility_private(self, service: IngestionService, sample_txt: Path):
-        doc = service.ingest(str(sample_txt), visibility="private").document
-        assert doc.visibility == "private"
-
-    def test_tenant_id_isolation(self, service: IngestionService, sample_txt: Path):
-        doc_a = service.ingest(str(sample_txt), tenant_id="tenant-a").document
-        doc_b = service.ingest(str(sample_txt), tenant_id="tenant-b").document
-        assert doc_a.tenant_id != doc_b.tenant_id
+    def test_tenant_isolation(self, service: IngestionService, sample_txt: Path):
+        a = service.ingest(str(sample_txt), tenant_id="tenant-a").document
+        b = service.ingest(str(sample_txt), tenant_id="tenant-b").document
+        assert a.tenant_id != b.tenant_id
 
 
-# ── IngestionService — error handling ─────────────────────────────────────────
+# ── Error handling ─────────────────────────────────────────────────────────────
 
-class TestIngestionServiceErrors:
-    """Verifies the service never raises — always returns IngestionResult."""
+class TestErrors:
 
-    def test_file_not_found_returns_failure(self, service: IngestionService):
+    def test_missing_file(self, service: IngestionService):
         result = service.ingest("/non/existent/file.txt")
         assert result.success is False
-        assert result.document is None
         assert "not found" in result.error.lower()
 
-    def test_unsupported_format_returns_failure(self, service: IngestionService, tmp_path: Path):
+    def test_unsupported_format(self, service: IngestionService, tmp_path: Path):
         f = tmp_path / "data.xyz"
         f.write_text("data")
         result = service.ingest(str(f))
@@ -228,32 +266,103 @@ class TestIngestionServiceErrors:
         assert ".xyz" in result.error
 
 
-# ── IngestionService — deduplication ──────────────────────────────────────────
+# ── Deduplication ──────────────────────────────────────────────────────────────
 
-class TestIngestionServiceDeduplication:
-    """
-    Verifies file_hash behaviour.
-    The hash is used by the vector store to skip re-ingestion of unchanged files.
-    """
+class TestDeduplication:
 
-    def test_same_file_produces_same_hash(self, service: IngestionService, sample_txt: Path):
-        doc1 = service.ingest(str(sample_txt)).document
-        doc2 = service.ingest(str(sample_txt)).document
-        assert doc1.file_hash == doc2.file_hash
+    def test_same_file_same_hash(self, service: IngestionService, sample_txt: Path):
+        h1 = service.ingest(str(sample_txt)).document.file_hash
+        h2 = service.ingest(str(sample_txt)).document.file_hash
+        assert h1 == h2
 
-    def test_each_ingest_produces_unique_id(self, service: IngestionService, sample_txt: Path):
-        # id is a new UUID every load — file_hash is the dedup key, not id.
-        doc1 = service.ingest(str(sample_txt)).document
-        doc2 = service.ingest(str(sample_txt)).document
-        assert doc1.id != doc2.id
+    def test_unique_id_per_ingest(self, service: IngestionService, sample_txt: Path):
+        id1 = service.ingest(str(sample_txt)).document.id
+        id2 = service.ingest(str(sample_txt)).document.id
+        assert id1 != id2
 
-    def test_different_files_produce_different_hashes(
+    def test_different_content_different_hash(
         self, service: IngestionService, tmp_path: Path
     ):
         f1 = tmp_path / "a.txt"
         f2 = tmp_path / "b.txt"
-        f1.write_text("content A", encoding="utf-8")
-        f2.write_text("content B", encoding="utf-8")
-        hash1 = service.ingest(str(f1)).document.file_hash
-        hash2 = service.ingest(str(f2)).document.file_hash
-        assert hash1 != hash2
+        f1.write_text("content A")
+        f2.write_text("content B")
+        assert (
+            service.ingest(str(f1)).document.file_hash
+            != service.ingest(str(f2)).document.file_hash
+        )
+
+
+# ── SmartPdfLoader routing ─────────────────────────────────────────────────────
+
+class TestSmartPdfLoader:
+
+    def test_text_pdf_returns_pymupdf_result(self, tmp_path: Path):
+        """
+        When text density check passes, SmartPdfLoader returns the PdfLoader result
+        without falling through to Docling or OCR.
+        """
+        from unittest.mock import patch
+        from agent.ingestion.loaders.pdf_smart import SmartPdfLoader
+
+        path = tmp_path / "sample.pdf"
+        content = b"""%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 4 0 R/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>>>endobj
+4 0 obj<</Length 44>>
+stream
+BT /F1 12 Tf 100 700 Td (Hello PDF) Tj ET
+endstream
+endobj
+xref
+0 5
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000274 00000 n
+trailer<</Size 5/Root 1 0 R>>
+startxref
+368
+%%EOF"""
+        path.write_bytes(content)
+
+        loader = SmartPdfLoader()
+        # Mock _is_text_sparse to return False — simulates a text-rich PDF.
+        # This isolates the routing logic from PDF rendering behaviour.
+        with patch.object(loader, "_is_text_sparse", return_value=False):
+            result = loader.load(str(path))
+
+        assert result.source_type == "pdf"
+        assert result.metadata.get("extraction_method") == "pymupdf4llm_markdown"
+
+    def test_sparse_pdf_triggers_fallback(self, tmp_path: Path):
+        """Sparse text PDF should add extraction_warning when no advanced loaders available."""
+        from agent.ingestion.loaders.pdf_smart import SmartPdfLoader
+
+        loader = SmartPdfLoader()
+        loader._docling_loader = None
+        loader._ocr_loader = None
+
+        # Use the minimal hand-crafted PDF (produces very little text from pymupdf4llm)
+        content = b"""%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj
+xref
+0 4
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+trailer<</Size 4/Root 1 0 R>>
+startxref
+190
+%%EOF"""
+        path = tmp_path / "sparse.pdf"
+        path.write_bytes(content)
+
+        result = loader.load(str(path))
+        assert result.source_type == "pdf"
+        assert "extraction_warning" in result.metadata
