@@ -1,0 +1,37 @@
+version: "3.9"
+
+# What problem does this solve?
+# - PostgreSQL + pgvector is required before the EmbeddingService can store
+#   vectors or the RetrievalService can search them. This compose file brings
+#   up the full database stack with one command: docker compose up -d
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16       # pgvector extension pre-installed
+    container_name: enterprise_doc_db
+    environment:
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpassword
+      POSTGRES_DB: ragdb
+    ports:
+      - "5432:5432"                     # exposed for local development
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/setup_db.sql:/docker-entrypoint-initdb.d/setup_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+    driver: local
+
+# Usage:
+#   docker compose up -d           # start postgres (runs setup_db.sql automatically)
+#   docker compose down            # stop
+#   docker compose down -v         # stop and delete data
+#
+# Connection string (set in .env or environment):
+#   PGVECTOR_URL=postgresql://raguser:ragpassword@localhost:5432/ragdb
