@@ -121,6 +121,6 @@ def make_test_token(
         "sub": user_id,
         "tenant_id": tenant_id,
         "roles": roles or [],
-        "exp": int(time.time()) + 3600,
+        "exp": int(time.time()) + 86400,  # 24 hours
     }
     return jwt.encode(payload, secret, algorithm="HS256")

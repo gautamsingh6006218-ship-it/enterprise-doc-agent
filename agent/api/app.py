@@ -62,6 +62,24 @@ def create_app() -> FastAPI:
     def health():
         return {"status": "ok", "version": "1.0.0"}
 
+    @app.post("/auth/token", tags=["auth"])
+    def get_dev_token(
+        tenant_id: str = "acme",
+        user_id: str = "user1",
+        role: str = "admin",
+    ):
+        """
+        Dev-mode token generator. Returns a 24-hour JWT signed with the server's secret.
+        Disable this endpoint (or guard it) in production.
+        """
+        from agent.api.auth import make_test_token
+        token = make_test_token(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            roles=[role],
+        )
+        return {"token": token, "tenant_id": tenant_id, "user_id": user_id}
+
     return app
 
 
