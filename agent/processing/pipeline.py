@@ -14,15 +14,18 @@ Why a pipeline class instead of a single large function?
   observability without adding logging calls everywhere.
 
 Stage order is deliberate:
-  1. WhitespaceCleaner  — normalise whitespace first so all subsequent
-                          regex patterns operate on clean line boundaries.
-  2. NoiseCleaner       — remove structural boilerplate (page numbers, TOC).
-  3. UnicodeNormalizer  — replace typographic variants with ASCII equivalents.
-  4. HyphenNormalizer   — repair PDF line-break hyphens AFTER unicode is clean.
-  5. MetadataExtractor  — extract structured data from the now-clean text.
+  1. FtfyCleaner        — repair mojibake first (â€™ → ') so all subsequent
+                          stages operate on valid Unicode, not garbled bytes.
+  2. WhitespaceCleaner  — normalise whitespace so regex patterns have clean
+                          line boundaries to match against.
+  3. NoiseCleaner       — remove structural boilerplate (page numbers, TOC).
+  4. UnicodeNormalizer  — replace typographic variants with ASCII equivalents.
+  5. HyphenNormalizer   — repair PDF line-break hyphens AFTER unicode is clean.
+  6. MetadataExtractor  — extract structured data from the now-clean text.
 """
 
 from agent.ingestion.models import Document
+from agent.processing.cleaning.ftfy_cleaner import FtfyCleaner
 from agent.processing.cleaning.noise_cleaner import NoiseCleaner
 from agent.processing.cleaning.whitespace_cleaner import WhitespaceCleaner
 from agent.processing.metadata.extractor import MetadataExtractor
@@ -61,8 +64,9 @@ class PreprocessingPipeline:
           preventing shared state between multiple pipeline instances in tests.
         """
         self._cleaners = cleaners or [
-            WhitespaceCleaner(),   # first: clean whitespace so regex patterns work
-            NoiseCleaner(),        # second: remove structural noise
+            FtfyCleaner(),         # first: repair mojibake / encoding corruption
+            WhitespaceCleaner(),   # second: normalise whitespace so regex patterns work
+            NoiseCleaner(),        # third: remove structural noise (page numbers, watermarks)
         ]
         self._normalizers = normalizers or [
             UnicodeNormalizer(),   # first: ASCII equivalents for consistent tokenisation

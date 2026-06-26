@@ -157,7 +157,7 @@ class TestLoaderRegistry:
         assert isinstance(loader, HtmlLoader)
 
     def test_unsupported_extension_raises(self):
-        with pytest.raises(ValueError, match="No loader registered for '.xyz'"):
+        with pytest.raises(ValueError, match="No loader registered for"):
             LoaderRegistry().get_loader("file.xyz")
 
     def test_register_overrides_existing(self):

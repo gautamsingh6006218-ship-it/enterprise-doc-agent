@@ -25,6 +25,10 @@ Why keep TxtLoader and HtmlLoader instead of routing through Unstructured?
 - HtmlLoader's script/style stripping is more aggressive than Unstructured's.
 - TxtLoader's source_type distinction (txt vs markdown) is needed downstream.
 
+Format detection order in get_loader():
+  1. MimeTypeDetector (libmagic byte signature) — catches wrong/missing extensions
+  2. File extension fallback — preserves existing behaviour when magic unavailable
+
 Module-level singleton (registry):
 - Loaders are stateless — one shared instance per process is safe and efficient.
 - Tests that need isolation instantiate LoaderRegistry() directly.
@@ -37,6 +41,7 @@ from agent.ingestion.loaders.html import HtmlLoader
 from agent.ingestion.loaders.pdf_smart import SmartPdfLoader
 from agent.ingestion.loaders.txt import TxtLoader
 from agent.ingestion.loaders.unstructured_loader import UNSTRUCTURED_EXTENSIONS, UnstructuredLoader
+from agent.ingestion.mime_detector import MimeTypeDetector
 from agent.ingestion.models import Document
 
 
@@ -51,10 +56,12 @@ class LoaderRegistry:
     - New formats are added by registering a loader — nothing else changes.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, mime_detector: MimeTypeDetector | None = None) -> None:
         # Internal map: lowercase extension → loader instance.
         # Loaders are stateless so one instance per format is safe.
         self._loaders: dict[str, BaseDocumentLoader] = {}
+        # MimeTypeDetector is injectable so tests can disable magic detection.
+        self._mime_detector = mime_detector or MimeTypeDetector()
         self._register_defaults()
 
     def _register_defaults(self) -> None:
@@ -110,6 +117,13 @@ class LoaderRegistry:
         - Resolves which loader handles a file without the caller needing
           to inspect extensions or know loader class names.
 
+        Why try MIME detection before extension?
+        - Files from email attachments and cloud storage often have wrong
+          extensions (e.g. a Word doc saved as "report.pdf"). MIME detection
+          reads the actual byte signature — it cannot be fooled by renaming.
+        - Extension fallback: if libmagic is unavailable or returns an unknown
+          type, the original extension-based routing is preserved unchanged.
+
         Why return the loader instead of calling load() directly?
         - Separation: routing (this method) and IO (load()) are separate concerns.
           Callers may want to inspect the loader type before committing to IO.
@@ -119,15 +133,22 @@ class LoaderRegistry:
         - A ValueError with supported formats is immediately actionable.
 
         Raises:
-        - ValueError if no loader is registered for the extension.
+        - ValueError if no loader is registered for the detected format.
         """
-        ext = Path(file_path).suffix.lower()
-        loader = self._loaders.get(ext)
+        # Stage 1: MIME detection from file bytes (catches wrong/missing extensions)
+        detected_ext = self._mime_detector.detect_extension(file_path)
+        loader = self._loaders.get(f".{detected_ext}") or self._loaders.get(detected_ext)
+
+        # Stage 2: Fall back to file extension if MIME detection gave nothing
+        if not loader:
+            ext = Path(file_path).suffix.lower()
+            loader = self._loaders.get(ext)
 
         if not loader:
             supported = sorted(self._loaders.keys())
             raise ValueError(
-                f"No loader registered for '{ext}'. Supported: {supported}"
+                f"No loader registered for '{file_path}'. "
+                f"Detected type: '{detected_ext}'. Supported: {supported}"
             )
 
         return loader

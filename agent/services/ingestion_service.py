@@ -19,6 +19,7 @@ Why does this file exist?
 
 from dataclasses import dataclass
 
+from agent.ingestion.deduplicator import MinHashDeduplicator
 from agent.ingestion.loader_registry import LoaderRegistry
 from agent.ingestion.models import Document
 
@@ -38,14 +39,20 @@ class IngestionResult:
       meaningful HTTP 422 without catching multiple exception types.
 
     Fields:
-    - success:   True = document loaded and RBAC applied. False = failed.
-    - document:  Populated only when success=True.
-    - error:     Human-readable reason. Populated only when success=False.
+    - success:          True = document loaded and RBAC applied. False = failed.
+    - document:         Populated only when success=True and not a duplicate.
+    - error:            Human-readable reason. Populated only when success=False.
+    - is_duplicate:     True if near-dedup detected this as a near-duplicate.
+    - duplicate_of:     document_id of the near-duplicate match. None if not duplicate.
+    - similarity_score: Estimated Jaccard similarity to the duplicate. 0.0 if not duplicate.
     """
 
     success: bool
     document: Document | None = None
     error: str | None = None
+    is_duplicate: bool = False
+    duplicate_of: str | None = None
+    similarity_score: float = 0.0
 
 
 class IngestionService:
@@ -66,14 +73,24 @@ class IngestionService:
       changing this file.
     """
 
-    def __init__(self, registry: LoaderRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: LoaderRegistry | None = None,
+        deduplicator: MinHashDeduplicator | None = None,
+    ) -> None:
         """
-        Why optional registry?
-        - Default (None) creates a registry with all built-in loaders —
-          correct for production use.
-        - Tests pass a minimal registry to keep test scope narrow and fast.
+        Why optional registry and deduplicator?
+        - Default (None) creates production defaults: full registry + active deduplicator.
+        - Tests pass a minimal registry to keep scope narrow, and can inject a
+          disabled deduplicator to skip near-dedup checks for speed.
+
+        Args:
+        - registry:     LoaderRegistry for format detection and loading.
+        - deduplicator: MinHashDeduplicator for near-duplicate detection.
+                        Pass MinHashDeduplicator(disabled=True) to bypass.
         """
         self._registry = registry or LoaderRegistry()
+        self._deduplicator = deduplicator or MinHashDeduplicator()
 
     def ingest(
         self,
@@ -121,6 +138,19 @@ class IngestionService:
             document.owner_id = owner_id
             document.access_roles = access_roles or []
             document.visibility = visibility
+
+            # Near-duplicate detection: check before chunking/embedding to
+            # avoid storing near-identical content in the vector store.
+            # Uses MinHash LSH on document text — O(1) lookup.
+            dedup = self._deduplicator.check(document.id, document.text)
+            if dedup.is_duplicate:
+                return IngestionResult(
+                    success=True,
+                    document=document,
+                    is_duplicate=True,
+                    duplicate_of=dedup.duplicate_of,
+                    similarity_score=dedup.similarity_score,
+                )
 
             return IngestionResult(success=True, document=document)
 
