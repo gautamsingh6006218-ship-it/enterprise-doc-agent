@@ -8,3 +8,5 @@ vectorstore/
 docs/*.pdf
 docs/*
 !docs/.gitkeep
+enterprise_rag_chatbot_hld.pdf
+tools.txt
