@@ -26,8 +26,9 @@ Why not delete PgVector chunks here?
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from agent.api.auth import get_rbac_context
-from agent.api.dependencies import get_registry_service
+from agent.api.dependencies import get_registry_service, get_vector_store
 from agent.api.models import DeleteResponse, DocumentListResponse, DocumentResponse
+from agent.embeddings.store import PgVectorStore
 from agent.registry.models import DocumentRecord
 from agent.retrieval.models import RBACContext
 from agent.services.registry_service import RegistryService
@@ -103,15 +104,11 @@ def delete_document(
     document_id: str,
     rbac: RBACContext = Depends(get_rbac_context),
     registry_svc: RegistryService = Depends(get_registry_service),
+    vector_store: PgVectorStore = Depends(get_vector_store),
 ) -> DeleteResponse:
     """
-    Remove a document's registry record.
-
-    Note: chunks in PgVector are NOT deleted by this endpoint.
-    Use the document management CLI or a scheduled cleanup job to
-    remove orphaned chunks after deleting the registry record.
+    Remove a document: deletes both the registry record and all chunks from pgvector.
     """
-    # Fetch first to enforce tenant RBAC before deleting
     get_result = registry_svc.get(document_id)
     if not get_result.success:
         raise HTTPException(
@@ -128,6 +125,9 @@ def delete_document(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
+
+    # Delete chunks from pgvector first, then registry record
+    vector_store.delete_by_document_id(document_id)
 
     delete_result = registry_svc.delete(document_id)
     if not delete_result.success:

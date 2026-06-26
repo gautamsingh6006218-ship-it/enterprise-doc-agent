@@ -94,6 +94,17 @@ class RegistryService:
         except Exception as e:
             return RegistryResult(success=False, error=f"Hash lookup failed: {e}")
 
+    def get_by_original_filename(self, filename: str, tenant_id: str) -> RegistryResult:
+        """
+        Look up a completed document by its original filename.
+        Used by re-upload detection to find and replace a previous version.
+        """
+        try:
+            record = self._store.get_by_original_filename(filename, tenant_id)
+            return RegistryResult(success=True, record=record)
+        except Exception as e:
+            return RegistryResult(success=False, error=f"Filename lookup failed: {e}")
+
     def list_by_tenant(
         self,
         tenant_id: str,

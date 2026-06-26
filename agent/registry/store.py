@@ -140,6 +140,25 @@ class DocumentRegistryStore:
             return None
         return self._row_to_record(row, cur.description)
 
+    def get_by_original_filename(self, filename: str, tenant_id: str) -> DocumentRecord | None:
+        """
+        Look up a completed document by its original filename within a tenant.
+        Used by the re-upload detection logic to find the previous version.
+        """
+        sql = """
+            SELECT * FROM documents
+            WHERE file_path = %s AND tenant_id = %s AND status = 'completed'
+            ORDER BY created_at DESC
+            LIMIT 1
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(sql, (filename, tenant_id))
+            row = cur.fetchone()
+            description = cur.description
+        if row is None:
+            return None
+        return self._row_to_record(row, description)
+
     def list_by_tenant(
         self,
         tenant_id: str,

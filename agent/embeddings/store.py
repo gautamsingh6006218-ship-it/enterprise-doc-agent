@@ -346,6 +346,19 @@ class PgVectorStore:
             for row in rows
         ]
 
+    def delete_by_document_id(self, document_id: str) -> int:
+        """
+        Delete all chunks belonging to a document.
+        Called by DELETE /documents/{id} to keep pgvector in sync with the registry.
+        Returns the number of rows deleted.
+        """
+        sql = f"DELETE FROM {DB_TABLE} WHERE document_id = %(document_id)s"
+        with self._conn.cursor() as cur:
+            cur.execute(sql, {"document_id": document_id})
+            count = cur.rowcount
+        self._conn.commit()
+        return count
+
     def close(self) -> None:
         """Close the database connection if we own it (created from connection_string)."""
         if self._owns_connection and self._conn and not self._conn.closed:

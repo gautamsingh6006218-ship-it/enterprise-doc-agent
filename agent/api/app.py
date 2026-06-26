@@ -1,24 +1,35 @@
 """
 api/app.py
 
-What problem does this solve?
-- FastAPI application assembly: registers routers, configures CORS,
-  and exposes the app object that uvicorn serves.
-
-Why a create_app() factory instead of a module-level app?
-- Tests call create_app() to get a fresh app instance with overridden
-  dependencies. A module-level app would carry state between tests.
-- Enables multiple app instances in the same process (useful for testing
-  different configurations without monkey-patching globals).
+FastAPI application assembly: registers routers, configures CORS, starts
+background scheduler and file watcher, and exposes the app object for uvicorn.
 
 Run with:
   uvicorn agent.api.app:app --host 0.0.0.0 --port 8000 --reload
 """
 
+from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+load_dotenv()  # loads .env before any service reads os.getenv()
+
 from agent.api.routes import documents, ingest, query, sync
+from agent.api.scheduler import start_scheduler, stop_scheduler
+from agent.watchers.file_watcher import start_file_watcher, stop_file_watcher
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: launch scheduler and file watcher
+    start_scheduler()
+    start_file_watcher()
+    yield
+    # Shutdown: stop both cleanly
+    stop_scheduler()
+    stop_file_watcher()
 
 
 def create_app() -> FastAPI:
@@ -31,9 +42,9 @@ def create_app() -> FastAPI:
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
-    # CORS — tighten origins in production
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -42,7 +53,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Routes
     app.include_router(ingest.router)
     app.include_router(query.router)
     app.include_router(documents.router)

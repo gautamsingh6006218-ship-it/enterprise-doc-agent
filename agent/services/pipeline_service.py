@@ -75,6 +75,7 @@ class PipelineService:
         access_roles: list[str] | None = None,
         visibility: str = "public",
         file_hash: str = "",
+        original_filename: str = "",
     ) -> PipelineResult:
         """
         What problem does this solve?
@@ -105,7 +106,7 @@ class PipelineService:
         )
 
         if self._registry is not None:
-            self._persist(result, tenant_id, owner_id, file_hash)
+            self._persist(result, tenant_id, owner_id, file_hash, original_filename)
 
         return result
 
@@ -117,6 +118,7 @@ class PipelineService:
         tenant_id: str,
         owner_id: str,
         file_hash: str,
+        original_filename: str = "",
     ) -> None:
         """
         Build a DocumentRecord from the PipelineResult and upsert it.
@@ -129,7 +131,7 @@ class PipelineService:
         try:
             record = DocumentRecord(
                 id=result.document_id or result.file_path,
-                file_path=result.file_path,
+                file_path=original_filename or result.file_path,
                 file_hash=file_hash,
                 status=_status_from_result(result),
                 tenant_id=tenant_id,

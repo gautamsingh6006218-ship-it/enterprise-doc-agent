@@ -267,6 +267,12 @@ class TestPgVectorStoreInterface:
     We do NOT test the actual SQL execution or pgvector type handling.
     """
 
+    @pytest.fixture(autouse=True)
+    def patch_register_vector(self):
+        # _register_vector calls a real DB query — skip it for mock connections
+        with patch("agent.embeddings.store._register_vector"):
+            yield
+
     def _make_dict_row(self, chunk_id="c1", doc_id="d1", text="hello", score=0.9):
         """Creates a dict-like row mimicking psycopg2 DictRow."""
         row = {

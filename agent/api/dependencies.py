@@ -122,6 +122,16 @@ def get_registry_service() -> RegistryService:
 
 
 @lru_cache(maxsize=1)
+def get_vector_store():
+    """Returns the PgVectorStore singleton for chunk deletion operations."""
+    pgvector_url = os.getenv("PGVECTOR_URL", "")
+    from agent.embeddings.store import PgVectorStore
+    import psycopg2
+    conn = psycopg2.connect(pgvector_url)
+    return PgVectorStore(connection=conn)
+
+
+@lru_cache(maxsize=1)
 def get_llm_service() -> LLMService:
     """
     Returns an LLMService backed by a local Ollama model.

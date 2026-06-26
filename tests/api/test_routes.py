@@ -33,6 +33,7 @@ from agent.api.dependencies import (
     get_pipeline_service,
     get_registry_service,
     get_retrieval_service,
+    get_vector_store,
 )
 from agent.pipeline.models import PipelineResult
 from agent.registry.models import DocumentRecord
@@ -114,6 +115,12 @@ def _mock_registry_service(
     hash_result.record = hash_record
     svc.get_by_file_hash.return_value = hash_result
 
+    # filename lookup always returns None (no existing doc with same name)
+    filename_result = MagicMock()
+    filename_result.success = True
+    filename_result.record = None
+    svc.get_by_original_filename.return_value = filename_result
+
     del_result = MagicMock()
     del_result.success = True
     del_result.deleted = delete_result
@@ -161,6 +168,8 @@ def client_factory():
             app.dependency_overrides[get_registry_service] = lambda: registry_svc
         if retrieval_svc is not None:
             app.dependency_overrides[get_retrieval_service] = lambda: retrieval_svc
+        # Always mock vector_store so tests don't need a live DB
+        app.dependency_overrides[get_vector_store] = lambda: MagicMock()
         return TestClient(app, raise_server_exceptions=False)
     return _make
 

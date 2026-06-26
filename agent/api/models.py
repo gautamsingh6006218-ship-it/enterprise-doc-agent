@@ -33,6 +33,14 @@ class IngestResponse(BaseModel):
     error: str | None = None
 
 
+class BatchIngestResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    duplicates: int
+    results: list[IngestResponse] = []
+
+
 # ── Query ──────────────────────────────────────────────────────────────────────
 
 class QueryRequest(BaseModel):
