@@ -25,12 +25,12 @@ Why inject encoder, store, and reranker separately?
 - Production can swap the encoder without changing the reranker (model A/B test).
 """
 
-from agent.embeddings.bge_encoder import BGEEncoder
-from agent.embeddings.config import RERANK_TOP_K, RETRIEVAL_TOP_K
-from agent.embeddings.store import PgVectorStore
-from agent.retrieval.models import RBACContext, RetrievedContext, SearchResult
+from agent.embeddings import RETRIEVAL_TOP_K, BGEEncoder, PgVectorStore
+from agent.retrieval.config import RERANK_TOP_K
+from agent.retrieval.models import RetrievedContext
 from agent.retrieval.reranker import BGEReranker
 from agent.retrieval.rrf import build_id_index, reciprocal_rank_fusion
+from agent.shared import RBACContext, SearchResult
 
 # After RRF, send this many candidates to the cross-encoder reranker.
 # 20 is the sweet spot: enough for diverse reranking, fast enough for

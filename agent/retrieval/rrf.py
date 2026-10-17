@@ -28,7 +28,7 @@ Why not LangChain EnsembleRetriever?
   — an abstraction mismatch. RRF is 12 lines; the dependency is not worth it.
 """
 
-from agent.retrieval.models import SearchResult
+from agent.shared import SearchResult
 
 _RRF_K = 60  # Cormack et al. 2009 default — do not change without benchmarking
 

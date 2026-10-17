@@ -35,7 +35,7 @@ from agent.chunking.token_counter import TokenCounter
 from agent.ingestion.models import Document, DocumentChunk
 from agent.processing.metadata.extractor import MetadataExtractor
 from agent.processing.models import ExtractedMetadata, ProcessedDocument
-from agent.services.chunking_service import ChunkingResult, ChunkingService
+from agent.chunking.service import ChunkingResult, ChunkingService
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

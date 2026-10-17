@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 from agent.processing.models import ExtractedMetadata
 
 if TYPE_CHECKING:
-    from agent.ingestion.models import Document
+    from agent.ingestion import Document
 
 # ── Compiled regex patterns ────────────────────────────────────────────────────
 

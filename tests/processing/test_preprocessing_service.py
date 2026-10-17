@@ -23,7 +23,7 @@ from agent.processing.models import ProcessedDocument
 from agent.processing.normalization.hyphen_normalizer import HyphenNormalizer
 from agent.processing.normalization.unicode_normalizer import UnicodeNormalizer
 from agent.processing.pipeline import PreprocessingPipeline
-from agent.services.preprocessing_service import PreprocessingResult, PreprocessingService
+from agent.processing.service import PreprocessingResult, PreprocessingService
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

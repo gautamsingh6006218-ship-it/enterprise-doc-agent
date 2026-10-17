@@ -31,8 +31,8 @@ import uuid
 
 from agent.chunking.router import ChunkingRouter
 from agent.chunking.token_counter import TokenCounter
-from agent.ingestion.models import DocumentChunk
-from agent.processing.models import ProcessedDocument
+from agent.ingestion import DocumentChunk
+from agent.processing import ProcessedDocument
 
 
 class ChunkingPipeline:

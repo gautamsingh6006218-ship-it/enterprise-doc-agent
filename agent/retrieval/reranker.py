@@ -34,8 +34,8 @@ try:
 except ImportError:
     _FLAG_EMBEDDING_AVAILABLE = False
 
-from agent.embeddings.config import BGE_RERANKER_MODEL, RERANK_TOP_K
-from agent.retrieval.models import SearchResult
+from agent.retrieval.config import BGE_RERANKER_MODEL, RERANK_TOP_K
+from agent.shared import SearchResult
 
 
 class BGEReranker:

@@ -19,10 +19,10 @@ import pytest
 from agent.pipeline.models import PipelineResult, StageResult
 from agent.pipeline.orchestrator import DocumentPipeline
 from agent.processing.models import ProcessedDocument
-from agent.services.chunking_service import ChunkingResult
-from agent.services.embedding_service import EmbeddingResult
-from agent.services.ingestion_service import IngestionResult
-from agent.services.preprocessing_service import PreprocessingResult
+from agent.chunking.service import ChunkingResult
+from agent.embeddings.service import EmbeddingResult
+from agent.ingestion.service import IngestionResult
+from agent.processing.service import PreprocessingResult
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

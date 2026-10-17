@@ -20,12 +20,6 @@ Why constants and not environment variables?
 # License: MIT | Source: https://huggingface.co/BAAI/bge-m3
 BGE_M3_MODEL = "BAAI/bge-m3"
 
-# ── Reranker model ─────────────────────────────────────────────────────────────
-# bge-reranker-v2-m3: cross-encoder reranker from the same BAAI family as BGE-M3.
-# Runs fully local — enterprise documents never leave the machine.
-# License: MIT | Source: https://huggingface.co/BAAI/bge-reranker-v2-m3
-BGE_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
-
 # ── Vector dimensions ──────────────────────────────────────────────────────────
 # BGE-M3 dense output: 1024 dimensions.
 # This value must match the vector(1024) column in the database schema.
@@ -45,7 +39,3 @@ DB_TABLE = "document_chunks"
 # How many candidates each retrieval path returns before RRF fusion.
 # Higher = better recall, more reranking cost. 50 is the standard production value.
 RETRIEVAL_TOP_K = 50
-
-# Final chunks returned to the LLM after reranking.
-# 5 × ~512 tokens ≈ 2560 tokens — fits comfortably in any LLM context window.
-RERANK_TOP_K = 5

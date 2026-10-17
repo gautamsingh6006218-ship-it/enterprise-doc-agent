@@ -156,10 +156,10 @@ Optional `.env` settings:
 
 ```bash
 # If using Anaconda on macOS, use the full venv path:
-.venv/bin/python -m uvicorn agent.api.app:app --host 0.0.0.0 --port 8000 --reload
+.venv/bin/python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 
 # Otherwise:
-uvicorn agent.api.app:app --host 0.0.0.0 --port 8000 --reload
+uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 BGE-M3 (~600 MB) loads on the first request — takes 10–30 seconds.
@@ -167,11 +167,11 @@ BGE-M3 (~600 MB) loads on the first request — takes 10–30 seconds.
 Verify:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8000/api/health
 # {"status":"ok","version":"1.0.0"}
 ```
 
-API docs available at: **http://localhost:8000/docs**
+API docs available at: **http://localhost:8000/api/docs**
 
 ---
 
@@ -230,20 +230,20 @@ All endpoints require `Authorization: Bearer <token>`.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/ingest` | Upload a single file |
-| `POST` | `/ingest/batch` | Upload multiple files at once |
-| `POST` | `/query` | Semantic search + optional LLM answer |
-| `GET` | `/documents` | List all documents for your tenant |
-| `GET` | `/documents/{id}` | Get pipeline status of one document |
-| `DELETE` | `/documents/{id}` | Delete document + all its chunks |
-| `POST` | `/sync/{source}` | Trigger connector sync (confluence/jira/sharepoint/wiki) |
-| `POST` | `/auth/token` | Generate a dev JWT token |
-| `GET` | `/health` | Health check (no auth required) |
+| `POST` | `/api/ingest` | Upload a single file |
+| `POST` | `/api/ingest/batch` | Upload multiple files at once |
+| `POST` | `/api/query` | Semantic search + optional LLM answer |
+| `GET` | `/api/documents` | List all documents for your tenant |
+| `GET` | `/api/documents/{id}` | Get pipeline status of one document |
+| `DELETE` | `/api/documents/{id}` | Delete document + all its chunks |
+| `POST` | `/api/sync/{source}` | Trigger connector sync (confluence/jira/sharepoint/wiki) |
+| `POST` | `/api/auth/token` | Generate a dev JWT token |
+| `GET` | `/api/health` | Health check (no auth required) |
 
 **Query with LLM answer:**
 
 ```bash
-curl -X POST http://localhost:8000/query \
+curl -X POST http://localhost:8000/api/query \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"query": "what is the leave policy?", "generate_answer": true}'
@@ -252,7 +252,7 @@ curl -X POST http://localhost:8000/query \
 **Upload a file:**
 
 ```bash
-curl -X POST http://localhost:8000/ingest \
+curl -X POST http://localhost:8000/api/ingest \
   -H "Authorization: Bearer <token>" \
   -F "file=@/path/to/document.pdf" \
   -F "visibility=public"
@@ -264,7 +264,7 @@ curl -X POST http://localhost:8000/ingest \
 
 ```bash
 .venv/bin/python -c "
-from agent.api.auth import make_test_token
+from backend.auth import make_test_token
 print(make_test_token(
     tenant_id='acme',
     user_id='user1',
@@ -280,7 +280,7 @@ print(make_test_token(
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
-# 392 passed, 15 skipped
+# 436 passed, 15 skipped
 ```
 
 ---
@@ -313,34 +313,67 @@ SYNC_TENANT_ID=acme
 
 ```
 Enterprise-doc-agent/
-├── agent/
-│   ├── api/                  FastAPI routes, auth, dependencies, scheduler
-│   │   ├── routes/           ingest.py, query.py, documents.py, sync.py
-│   │   ├── app.py            FastAPI factory + lifespan (scheduler + watcher)
-│   │   ├── auth.py           JWT decode → RBACContext
-│   │   └── dependencies.py   lru_cache singletons (pipeline, retrieval, llm)
-│   ├── ingestion/            Document loaders (PDF, DOCX, HTML, etc.)
-│   ├── processing/           Cleaning, normalization, metadata extraction
-│   ├── chunking/             Sentence window, structure-aware, token strategies
-│   ├── embeddings/           BGE-M3 encoder + pgvector store
-│   ├── retrieval/            Dense + BM25 search, RRF, BGE reranker
-│   ├── registry/             PostgreSQL document pipeline tracking
-│   ├── pipeline/             DocumentPipeline orchestrator (4 stages)
-│   ├── connectors/           Confluence, Jira, SharePoint, MediaWiki
-│   ├── services/             Service layer (all return Result objects, never raise)
-│   ├── llm/                  OllamaProvider (Llama via Ollama)
-│   └── watchers/             watchdog file watcher
+├── backend/                  Backend only — no RAG logic
+│   ├── routes/               ingest.py, query.py, documents.py, sync.py (HTTP ↔ service calls)
+│   ├── app.py                FastAPI factory + lifespan (scheduler + watcher)
+│   ├── auth.py               JWT decode → RBACContext
+│   ├── models.py             HTTP request/response schemas
+│   ├── dependencies.py       Composition root: lru_cache singletons (pipeline, retrieval, llm)
+│   ├── scheduler.py          APScheduler job: scheduled connector sync
+│   └── file_watcher.py       watchdog job: ingest files dropped into WATCH_DIR
+├── agent/                    RAG modules only
+│   ├── shared/               Shared kernel: RBACContext, SearchResult
+│   ├── ingestion/            Document loaders (PDF, DOCX, HTML, etc.) + IngestionService
+│   ├── processing/           Cleaning, normalization, metadata extraction + PreprocessingService
+│   ├── chunking/             Sentence window, structure-aware, token strategies + ChunkingService
+│   ├── embeddings/           BGE-M3 encoder + pgvector store + EmbeddingService
+│   ├── retrieval/            Dense + BM25 search, RRF, BGE reranker + RetrievalService
+│   ├── registry/             PostgreSQL document pipeline tracking + RegistryService
+│   ├── pipeline/             DocumentPipeline orchestrator (4 stages) + PipelineService
+│   ├── documents/            DocumentService: ingest (dedup + replace), delete across registry + chunks
+│   ├── connectors/           Confluence, Jira, SharePoint, MediaWiki + build_connector()
+│   ├── sync/                 SyncService: connector → pipeline
+│   ├── llm/                  OllamaProvider (Llama via Ollama) + LLMService
+│   └── qa/                   QAService: retrieve, then generate an answer
 ├── frontend/                 React + TypeScript + Tailwind UI
 │   └── src/
 │       ├── components/Chat/  Chat interface with source viewer
 │       └── components/Documents/  Upload zone + document manager
-├── tests/                    392 tests (pytest)
+├── tests/                    436 tests (pytest)
 ├── scripts/
 │   └── setup_db.sql          PostgreSQL schema (auto-runs on docker compose up)
 ├── docker-compose.yml        PostgreSQL 16 + pgvector
 ├── requirements.txt          Python dependencies
 └── .env                      Configuration (copy from .env.example)
 ```
+
+---
+
+## Module Boundaries
+
+The app is a modular monolith: one process, one database, and two top-level packages.
+
+- `agent/` holds the RAG modules, one module per package. Each module exports its public API from its `__init__.py`. Other code imports only from there (`from agent.registry import RegistryService`), never from internal paths (`agent.registry.store`).
+- `backend/` holds only backend logic: HTTP routes, auth, request/response schemas, service wiring, and the scheduler and file-watcher jobs. A route or job checks its input, calls one RAG service, and maps the result. All RAG logic — dedup, parsing, chunking, embedding, retrieval, answer generation — lives in `agent/`. The backend may import any RAG module's public API, but it never imports an ML, parsing or vector library itself. Nothing in `agent/` imports `backend/`.
+
+Each RAG module may import only these modules:
+
+```
+sync ────────► connectors, pipeline, registry
+documents ───► embeddings, registry, pipeline
+pipeline ────► ingestion, processing, chunking, embeddings, registry
+qa ──────────► shared, retrieval, llm
+retrieval ───► shared, embeddings
+llm ─────────► shared
+embeddings ──► shared, ingestion
+chunking ────► ingestion, processing
+processing ──► ingestion
+ingestion, registry, connectors, shared ──► nothing
+```
+
+Each table has one owner: `registry` owns `documents`, `embeddings` owns `document_chunks`. Only `documents.DocumentService` changes both.
+
+`tests/architecture/test_module_boundaries.py` enforces these rules, including the list of RAG libraries that `backend/` may not import (`RAG_LIBRARIES`). To add a module, create `agent/<name>/__init__.py` with its exports, then add `<name>` and its dependencies to `MODULE_DEPENDENCIES` in that test.
 
 ---
 
