@@ -33,7 +33,7 @@ import psycopg2
 import psycopg2.extras
 
 from agent.embeddings.config import DB_TABLE, RETRIEVAL_TOP_K
-from agent.retrieval.models import RBACContext, SearchResult
+from agent.shared import RBACContext, SearchResult
 
 try:
     from pgvector.psycopg2 import register_vector as _register_vector

@@ -21,7 +21,7 @@ Where does ProcessedDocument fit?
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent.ingestion.models import Document
+from agent.ingestion import Document
 
 
 @dataclass

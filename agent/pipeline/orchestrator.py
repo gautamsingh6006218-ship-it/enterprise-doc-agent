@@ -34,11 +34,11 @@ Full stage order:
 
 import time
 
+from agent.chunking import ChunkingService
+from agent.embeddings import EmbeddingService
+from agent.ingestion import IngestionService
 from agent.pipeline.models import PipelineResult, StageResult
-from agent.services.chunking_service import ChunkingService
-from agent.services.embedding_service import EmbeddingService
-from agent.services.ingestion_service import IngestionService
-from agent.services.preprocessing_service import PreprocessingService
+from agent.processing import PreprocessingService
 
 
 def _ms(start: float) -> float:

@@ -24,7 +24,7 @@ Stage order is deliberate:
   6. MetadataExtractor  — extract structured data from the now-clean text.
 """
 
-from agent.ingestion.models import Document
+from agent.ingestion import Document
 from agent.processing.cleaning.ftfy_cleaner import FtfyCleaner
 from agent.processing.cleaning.noise_cleaner import NoiseCleaner
 from agent.processing.cleaning.whitespace_cleaner import WhitespaceCleaner

@@ -25,9 +25,9 @@ import pytest
 from agent.embeddings.bge_encoder import BGEEncoder, EncodingResult
 from agent.embeddings.store import PgVectorStore
 from agent.ingestion.models import DocumentChunk
-from agent.retrieval.models import RBACContext, SearchResult
+from agent.shared import RBACContext, SearchResult
 from agent.retrieval.rrf import build_id_index, reciprocal_rank_fusion
-from agent.services.embedding_service import EmbeddingResult, EmbeddingService
+from agent.embeddings.service import EmbeddingResult, EmbeddingService
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

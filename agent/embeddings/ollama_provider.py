@@ -1,7 +1,7 @@
 from langchain_ollama import OllamaEmbeddings
 
 from agent.embeddings.models import EmbeddingResult
-from agent.ingestion.models import DocumentChunk
+from agent.ingestion import DocumentChunk
 
 
 class OllamaEmbeddingProvider:

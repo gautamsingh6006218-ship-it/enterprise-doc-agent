@@ -21,10 +21,11 @@ import pytest
 
 from agent.embeddings.bge_encoder import BGEEncoder, EncodingResult
 from agent.embeddings.store import PgVectorStore
-from agent.retrieval.models import RBACContext, RetrievedContext, SearchResult
+from agent.retrieval.models import RetrievedContext
+from agent.shared import RBACContext, SearchResult
 from agent.retrieval.pipeline import RetrievalPipeline
 from agent.retrieval.reranker import BGEReranker
-from agent.services.retrieval_service import RetrievalResult, RetrievalService
+from agent.retrieval.service import RetrievalResult, RetrievalService
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

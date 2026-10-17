@@ -32,7 +32,7 @@ import pytest
 
 from agent.connectors.models import ConnectorDoc, SyncResult
 from agent.connectors.base import BaseConnector
-from agent.services.sync_service import (
+from agent.sync.service import (
     SyncService, _content_hash, _write_temp_file, _cleanup_temp
 )
 

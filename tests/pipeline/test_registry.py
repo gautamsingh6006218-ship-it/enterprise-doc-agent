@@ -22,8 +22,8 @@ import pytest
 from agent.pipeline.models import PipelineResult, StageResult
 from agent.registry.models import DocumentRecord, STATUSES
 from agent.registry.store import DocumentRegistryStore
-from agent.services.pipeline_service import PipelineService, _status_from_result
-from agent.services.registry_service import RegistryResult, RegistryService
+from agent.pipeline.service import PipelineService, _status_from_result
+from agent.registry.service import RegistryResult, RegistryService
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -154,6 +154,7 @@ class TestPipelineService:
             owner_id="u1",
             access_roles=["hr"],
             visibility="restricted",
+            original_filename="",
         )
 
     def test_registry_upsert_called_on_success(self):

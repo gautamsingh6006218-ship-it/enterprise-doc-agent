@@ -18,7 +18,7 @@ import pytest
 from agent.ingestion.loader_registry import LoaderRegistry
 from agent.ingestion.loaders.base import BaseDocumentLoader
 from agent.ingestion.models import Document
-from agent.services.ingestion_service import IngestionService
+from agent.ingestion.service import IngestionService
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
